@@ -1,0 +1,7 @@
+dhanhq
+pandas
+numpy
+requests
+gspread
+gspread-dataframe
+google-auth
