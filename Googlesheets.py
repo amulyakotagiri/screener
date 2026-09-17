@@ -20,17 +20,14 @@ def get_spreadsheet():
     return get_client().open_by_key(config.SPREADSHEET_ID)
 
 def load_universe() -> pd.DataFrame | None:
-    """
-    Try to load the permanent Universe tab.
-    Returns None if the tab does not exist or is empty.
-    """
+    """Load the permanent Universe tab. Returns None if missing/empty."""
     sh = get_spreadsheet()
     try:
         ws = sh.worksheet("Universe")
         df = get_as_dataframe(ws, evaluate_formulas=False, header=0)
-        df = df.dropna(how="all")          # remove completely empty rows
-        if len(df) < 500:                  # safety check – real universe is ~2000+
-            print("[SHEETS] Universe tab exists but looks empty / incomplete")
+        df = df.dropna(how="all")
+        if len(df) < 500:
+            print("[SHEETS] Universe tab exists but looks incomplete")
             return None
         print(f"[SHEETS] Loaded {len(df):,} instruments from existing 'Universe' tab")
         return df
@@ -39,7 +36,7 @@ def load_universe() -> pd.DataFrame | None:
         return None
 
 def write_universe(df: pd.DataFrame):
-    """Write (or overwrite) the permanent Universe tab – done only once."""
+    """Write the permanent Universe tab – done only once."""
     sh = get_spreadsheet()
     try:
         ws = sh.worksheet("Universe")
@@ -50,13 +47,11 @@ def write_universe(df: pd.DataFrame):
     ws = sh.add_worksheet(title="Universe", rows=len(df) + 50, cols=10)
     set_with_dataframe(ws, df, include_index=False, resize=True)
 
-    # Freeze header + bold
     ws.format("A1:Z1", {
         "textFormat": {"bold": True},
         "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
     })
     ws.freeze(rows=1)
-
     print(f"[SHEETS] Saved {len(df):,} instruments → permanent tab 'Universe'")
 
 def write_daily_results(df: pd.DataFrame):
@@ -64,7 +59,6 @@ def write_daily_results(df: pd.DataFrame):
     sh = get_spreadsheet()
     sheet_name = date.today().strftime("%Y-%m-%d")
 
-    # Delete if already exists (safe for re-runs)
     try:
         old = sh.worksheet(sheet_name)
         sh.del_worksheet(old)
@@ -78,7 +72,6 @@ def write_daily_results(df: pd.DataFrame):
 
     set_with_dataframe(ws, df, include_index=False, resize=True)
 
-    # Green header
     ws.format("A1:Z1", {
         "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
         "backgroundColor": {"red": 0.15, "green": 0.55, "blue": 0.30},
