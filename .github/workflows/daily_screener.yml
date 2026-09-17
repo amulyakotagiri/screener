@@ -2,14 +2,14 @@ name: Daily NSE Swing Screener
 
 on:
   schedule:
-    # 11:30 UTC = 5:00 PM IST
-    - cron: '30 11 * * *'
-  workflow_dispatch:
+    # 11:30 UTC = 5:00 PM IST (Monday–Friday)
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch:          # allows manual run anytime
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120      # full universe can take 60–90 min
 
     steps:
       - name: Checkout repository
@@ -19,15 +19,35 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # -------------------------------------------------
+      # Create the Google service-account JSON file
+      # -------------------------------------------------
+      - name: Create Google credentials file
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          mkdir -p credentials
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::Secret GOOGLE_SERVICE_ACCOUNT_JSON is missing or empty"
+            exit 1
+          fi
+          echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > credentials/service_account.json
+          echo "Google credentials file created successfully"
+
+      # -------------------------------------------------
+      # Run the screener
+      # -------------------------------------------------
       - name: Run Screener
         env:
           DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
           DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GOOGLE_CREDENTIALS_FILE: credentials/service_account.json
         run: python screener.py
