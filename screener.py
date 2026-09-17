@@ -1,9 +1,7 @@
 """
-NSE Swing Trade Screener – Universe fetched ONLY ONCE
-
-- First run (or when Universe tab is missing) → downloads full NSE list and saves it permanently
-- Every subsequent daily run → reads the list from the Google Sheet "Universe" tab
-- Creates a new dated tab every day at 5 PM IST with only the stocks that passed the screener
+NSE Swing Trade Screener
+- Universe is fetched ONLY ONCE and stored permanently in Google Sheet tab "Universe"
+- Every day a new dated tab is created with the filtered stocks
 """
 
 import time
@@ -15,7 +13,7 @@ import requests
 from dhanhq import DhanContext, dhanhq
 
 import config
-from utils.google_sheets import load_universe, write_universe, write_daily_results
+import Googlesheets as gs   # <-- matches your file name exactly
 
 # ------------------------------------------------------------------
 # Token helpers
@@ -47,7 +45,7 @@ def get_valid_token() -> str:
     return renewed or config.DHAN_ACCESS_TOKEN
 
 # ------------------------------------------------------------------
-# Instrument master – called ONLY when needed
+# Instrument master – called ONLY when Universe tab is missing
 # ------------------------------------------------------------------
 def fetch_nse_equity_list() -> pd.DataFrame:
     print("\n[INSTRUMENTS] Downloading Dhan instrument master (ONE-TIME)...")
@@ -82,7 +80,7 @@ def fetch_nse_equity_list() -> pd.DataFrame:
     return result
 
 # ------------------------------------------------------------------
-# Daily OHLCV with local cache + retries
+# Daily OHLCV with cache + retries
 # ------------------------------------------------------------------
 def get_daily_ohlcv(dhan, security_id: str, from_date: str, to_date: str,
                     cache_dir: Path) -> pd.DataFrame | None:
@@ -142,7 +140,7 @@ def get_daily_ohlcv(dhan, security_id: str, from_date: str, to_date: str,
     return None
 
 # ------------------------------------------------------------------
-# MA trend + Pullback (unchanged from your original logic)
+# MA trend + Pullback
 # ------------------------------------------------------------------
 def classify_ma20_trend(closes: pd.Series):
     required = config.SMA_SHORT + config.FLAT_MA_LOOKBACK_DAYS
@@ -208,24 +206,20 @@ def run_screener():
     to_date_str = to_date.isoformat()
     print(f"[DATA] {from_date_str} → {to_date_str}")
 
-    # ------------------------------------------------------------------
     # 1. Load or create the permanent Universe (fetched ONLY ONCE)
-    # ------------------------------------------------------------------
-    instruments = load_universe()
+    instruments = gs.load_universe()
     if instruments is None:
-        print("[UNIVERSE] First run detected – downloading full NSE list...")
+        print("[UNIVERSE] First run – downloading full NSE list...")
         instruments = fetch_nse_equity_list()
-        write_universe(instruments)
+        gs.write_universe(instruments)
     else:
-        # Make sure columns are correct
         instruments = instruments[["security_id", "symbol", "name"]].copy()
         instruments["security_id"] = instruments["security_id"].astype(str)
         instruments["symbol"] = instruments["symbol"].astype(str)
 
     total = len(instruments)
-    print(f"\n[UNIVERSE] Using {total:,} NSE equities (from permanent sheet)")
+    print(f"\n[UNIVERSE] Using {total:,} NSE equities")
 
-    # Local cache for today's OHLCV
     cache_dir = Path(config.CACHE_DIR) / to_date.isoformat()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -308,64 +302,3 @@ def run_screener():
 
         is_green = last_close > last_open
         close_ok = (last_close > prev_high) if config.REQUIRE_CLOSE_ABOVE_PREV_HIGH else (last_close > closes.iloc[-2])
-        vol_ok   = last_volume > config.VOLUME_SPIKE_MULTIPLIER * avg_vol_20
-
-        if not (is_green and close_ok and vol_ok):
-            stats["signal_failed"] += 1
-            continue
-
-        ma_label, ma_slope = classify_ma20_trend(closes)
-
-        stats["passed"] += 1
-        results.append({
-            "Company": row.get("name", symbol),
-            "Symbol": symbol,
-            "Security ID": security_id,
-            "Last Bar Date": last_date.strftime("%Y-%m-%d"),
-            "Last Close": round(last_close, 2),
-            "Open": round(last_open, 2),
-            "High": round(last_high, 2),
-            "Low": round(df["low"].iloc[-1], 2),
-            "SMA 20": round(sma20, 2),
-            "SMA 40": round(sma40, 2),
-            "SMA 200": round(sma200, 2),
-            "20 SMA > 40 SMA?": "YES",
-            "20 SMA > 200 SMA?": "YES",
-            "Close > 200 SMA?": "YES",
-            "Pullback to 20 SMA?": "YES",
-            "Signal Bar?": "YES",
-            "20 MA Trend": ma_label,
-            "20 MA Slope %/day": ma_slope,
-            "Latest Volume": int(last_volume),
-            "Avg Vol (20)": int(avg_vol_20),
-            "Volume Spike?": "YES",
-            "Days of Data": len(df),
-        })
-
-    # Final report
-    elapsed_min = (time.time() - start_time) / 60
-    print("\n" + "=" * 70)
-    print("SCREENING COMPLETE")
-    print("=" * 70)
-    for k, v in stats.items():
-        print(f"{k:22}: {v:,}")
-    print(f"{'Total runtime':22}: {elapsed_min:.2f} minutes")
-    print("=" * 70)
-
-    if results:
-        out_df = pd.DataFrame(results)
-        out_df = out_df.sort_values(
-            ["20 MA Trend", "20 MA Slope %/day"],
-            ascending=[True, False]
-        ).reset_index(drop=True)
-        print(f"\nFound {len(out_df)} matching stocks.")
-        write_daily_results(out_df)
-    else:
-        print("\nNo stocks met the criteria today.")
-        empty = pd.DataFrame([{"Message": "No stocks met the swing trade criteria today."}])
-        write_daily_results(empty)
-
-    print(f"\n[{datetime.now()}] Finished.")
-
-if __name__ == "__main__":
-    run_screener()
