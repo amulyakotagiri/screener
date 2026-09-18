@@ -15,6 +15,21 @@ from dhanhq import DhanContext, dhanhq
 import config
 import Googlesheets as gs
 
+
+# ---- TEMPORARY TOKEN TEST ----
+print("Testing Dhan token...")
+test_dhan = dhanhq(DhanContext(config.DHAN_CLIENT_ID, config.DHAN_ACCESS_TOKEN))
+test_resp = test_dhan.historical_daily_data(
+    security_id="1333",               # RELIANCE
+    exchange_segment="NSE_EQ",
+    instrument_type="EQUITY",
+    from_date="2025-09-01",
+    to_date="2025-09-10"
+)
+print("Test response status:", test_resp.get("status") if test_resp else "None")
+print("Test response:", str(test_resp)[:300])
+print("---- END TOKEN TEST ----")
+# ------------------------------
 # ------------------------------------------------------------------
 # Token helpers
 # ------------------------------------------------------------------
