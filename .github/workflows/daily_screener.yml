@@ -2,14 +2,13 @@ name: Daily NSE Swing Screener
 
 on:
   schedule:
-    # 11:30 UTC = 5:00 PM IST (Monday–Friday)
-    - cron: '30 11 * * 1-5'
-  workflow_dispatch:          # allows manual run anytime
+    - cron: '30 11 * * 1-5'   # 5:00 PM IST, Mon-Fri
+  workflow_dispatch:
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
-    timeout-minutes: 120      # full universe can take 60–90 min
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
@@ -26,9 +25,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # -------------------------------------------------
-      # Create the Google service-account JSON file
-      # -------------------------------------------------
       - name: Create Google credentials file
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
@@ -41,9 +37,6 @@ jobs:
           echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > credentials/service_account.json
           echo "Google credentials file created successfully"
 
-      # -------------------------------------------------
-      # Run the screener
-      # -------------------------------------------------
       - name: Run Screener
         env:
           DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
