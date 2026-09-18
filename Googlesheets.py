@@ -53,6 +53,7 @@ def write_universe(df: pd.DataFrame):
     })
     ws.freeze(rows=1)
     print(f"[SHEETS] Saved {len(df):,} instruments → permanent tab 'Universe'")
+    print(f"https://docs.google.com/spreadsheets/d/{config.SPREADSHEET_ID}")
 
 def write_daily_results(df: pd.DataFrame):
     """Create a brand-new sheet named with today's date."""
