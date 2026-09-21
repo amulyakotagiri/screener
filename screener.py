@@ -105,23 +105,22 @@ def generate_token_via_totp(client_id: str, pin: str, totp_secret: str) -> str |
         return None
 
 
-def verify_dhan_token(client_id: str, token: str) -> tuple[bool, str]:
-    """Test token validity against Dhan profile API."""
-    url = "https://api.dhan.co/v2/profile"
-    headers = {
-        "access-token": token,
-        "client-id": client_id,
-        "dhanClientId": client_id,
-        "Accept": "application/json"
-    }
+def verify_dhan_data_api(dhan_instance) -> tuple[bool, str]:
+    """Test token validity using a live daily OHLCV query for benchmark stock (HDFC Bank: 1333)."""
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            client_name = data.get("dhanClientName") or data.get("clientName", "Authenticated User")
-            return True, f"Verified as {client_name}"
-        else:
-            return False, f"Status {resp.status_code}: {resp.text[:200]}"
+        today = date.today().isoformat()
+        past = (date.today() - timedelta(days=10)).isoformat()
+        resp = dhan_instance.historical_daily_data(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument_type="EQUITY",
+            from_date=past,
+            to_date=today
+        )
+        if resp and resp.get("status") == "success":
+            return True, "HDFC Bank historical test query passed"
+        remarks = resp.get("remarks", {}) if resp else "No response"
+        return False, f"Test query failed: {remarks}"
     except Exception as e:
         return False, f"Connection error: {e}"
 
@@ -199,49 +198,92 @@ def get_valid_token() -> str:
         else:
             print(f"[AUTH] Token active! Valid until {exp_dt.strftime('%Y-%m-%d %I:%M %p IST')} ({remaining_hours:.1f} hours left).")
 
-            # Only attempt renewal if less than 1 hour remains
             if remaining_hours < 1.0:
                 print("[AUTH] Less than 1 hour remaining, attempting renewal...")
                 renewed = renew_access_token(CLIENT_ID, ACCESS_TOKEN)
                 if renewed:
                     return renewed
 
-    # Verify connectivity with Dhan API
-    valid, message = verify_dhan_token(CLIENT_ID, ACCESS_TOKEN)
-    if valid:
-        print(f"[AUTH] ✅ Dhan API Connection confirmed ({message}).")
-        return ACCESS_TOKEN
-    else:
-        print(f"[AUTH] ⚠️ Profile verification notice: {message}")
-        print("[AUTH] Proceeding with current token...")
-        return ACCESS_TOKEN
+    return ACCESS_TOKEN
 
 
 # ====================== GOOGLE SHEETS ======================
 def get_google_spreadsheet():
-    """Connect to Google Sheets using service account credentials."""
+    """Connect to Google Sheets using service account credentials with clear error guidance."""
     creds_json = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+
+    if not creds_json:
+        for candidate in ["service_account.json", "credentials.json"]:
+            if os.path.exists(candidate):
+                try:
+                    with open(candidate, "r", encoding="utf-8") as f:
+                        creds_json = f.read().strip()
+                    print(f"[SHEETS] Using local credentials file: {candidate}")
+                    break
+                except Exception:
+                    pass
+
+    if not creds_json:
+        print("\n" + "=" * 65)
+        print("❌ CRITICAL ERROR: GOOGLE_CREDENTIALS secret is missing or empty!")
+        print("=" * 65)
+        print("To fix this in GitHub Actions:")
+        print("  1. Go to your GitHub repository -> Settings -> Secrets and variables -> Actions")
+        print("  2. Click 'New repository secret'")
+        print("  3. Name: GOOGLE_CREDENTIALS")
+        print("  4. Secret: Paste the ENTIRE JSON content of your Google Cloud Service Account key file.")
+        print("=" * 65 + "\n")
+        raise RuntimeError("GOOGLE_CREDENTIALS secret is missing or empty!")
 
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    if creds_json.startswith("{"):
-        creds_dict = json.loads(creds_json)
-        credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    elif creds_json and os.path.exists(creds_json):
-        credentials = Credentials.from_service_account_file(creds_json, scopes=scopes)
-    elif os.path.exists("service_account.json"):
-        credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
-    elif os.path.exists("credentials.json"):
-        credentials = Credentials.from_service_account_file("credentials.json", scopes=scopes)
-    else:
-        raise RuntimeError("GOOGLE_CREDENTIALS secret/file is missing or invalid!")
+    try:
+        if creds_json.startswith("{"):
+            creds_dict = json.loads(creds_json)
+        else:
+            with open(creds_json, "r", encoding="utf-8") as f:
+                creds_dict = json.load(f)
+    except Exception as e:
+        print("\n" + "=" * 65)
+        print(f"❌ ERROR: Failed to parse GOOGLE_CREDENTIALS JSON: {e}")
+        print("=" * 65)
+        raise
 
+    client_email = creds_dict.get("client_email", "Unknown Service Account")
+    print(f"[SHEETS] Authenticating with Service Account: {client_email}")
+
+    credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     gc = gspread.authorize(credentials)
-    spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-    return spreadsheet
+
+    print(f"[SHEETS] Opening Spreadsheet ID: {SPREADSHEET_ID}...")
+    try:
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        print(f"[SHEETS] ✅ Successfully connected to spreadsheet: '{spreadsheet.title}'")
+        return spreadsheet
+    except gspread.exceptions.SpreadsheetNotFound:
+        print("\n" + "=" * 65)
+        print("❌ ERROR: Google Spreadsheet not found or permission denied!")
+        print("=" * 65)
+        print("Have you shared the spreadsheet with the service account email?")
+        print(f"👉 Service Account Email: {client_email}")
+        print(f"👉 Spreadsheet URL: https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}")
+        print("\nSteps to fix:")
+        print("  1. Open your Google Sheet in browser.")
+        print("  2. Click the 'Share' button in the top right.")
+        print(f"  3. Add: {client_email}")
+        print("  4. Grant 'Editor' permission and click 'Send'.")
+        print("=" * 65 + "\n")
+        raise
+    except Exception as e:
+        print("\n" + "=" * 65)
+        print(f"❌ ERROR connecting to Google Sheets: {e}")
+        print(f"Make sure {client_email} is added as an 'Editor' to:")
+        print(f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}")
+        print("=" * 65 + "\n")
+        raise
 
 
 def fetch_nse_equity_list() -> pd.DataFrame:
@@ -492,6 +534,14 @@ def run_screener():
     token = get_valid_token()
     ctx = DhanContext(CLIENT_ID, token)
     dhan = dhanhq(ctx)
+
+    # Verify Data API access with benchmark stock
+    valid_api, api_msg = verify_dhan_data_api(dhan)
+    if valid_api:
+        print(f"[AUTH] ✅ Dhan Data API connection confirmed ({api_msg}).")
+    else:
+        print(f"[AUTH] ⚠️ Dhan Data API notice: {api_msg}")
+        print("[AUTH] Proceeding with current token...")
 
     # Connect to Google Spreadsheet
     print("[SHEETS] Connecting to Google Spreadsheet...")
