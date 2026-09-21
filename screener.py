@@ -110,3 +110,4 @@ def fetch_nse_equity_list() -> pd.DataFrame:
         (df["SEM_EXM_EXCH_ID"].astype(str).str.upper() == "NSE") &
         (df["SEM_SEGMENT"].astype(str).str.upper() == "E") &
         (df["SEM_INSTRUMENT_NAME"].astype(str).str.upper() == "EQUITY")
+    )
