@@ -34,7 +34,6 @@ except ImportError:
 # ====================== CONFIG ======================
 IST = timezone(timedelta(hours=5, minutes=30))
 
-CLIENT_ID       = os.environ.get("DHAN_CLIENT_ID", "").strip()
 ACCESS_TOKEN    = os.environ.get("DHAN_ACCESS_TOKEN", "").strip()
 SPREADSHEET_ID  = os.environ.get("SPREADSHEET_ID", "10iZtgmYm3QqW52hDi52p2R5qmC5mAGLs0qKcXJub61Q").strip()
 UPDATE_UNIVERSE = os.environ.get("UPDATE_UNIVERSE", "").strip().lower() in ("1", "true", "yes")
