@@ -105,13 +105,24 @@ def fetch_nse_equity_list() -> pd.DataFrame:
     df = pd.read_csv(io.BytesIO(resp.content), low_memory=False)
     df.columns = [c.strip().upper() for c in df.columns]
 
+    # Clean whitespace on the columns we filter on
+    for col in ["SEM_EXM_EXCH_ID", "SEM_SEGMENT", "SEM_INSTRUMENT_NAME", "SEM_SERIES"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip().str.upper()
+
+    # Only true equity series (main board + trade-to-trade); excludes
+    # NCDs (N1-N9), sovereign gold bonds (GB), T-bills (TB), govt securities (GS), etc.
+    EQUITY_SERIES = {"EQ", "BE", "BZ", "SM", "ST"}
+
     mask = (
-        (df["SEM_EXM_EXCH_ID"].astype(str).str.upper() == "NSE") &
-        (df["SEM_SEGMENT"].astype(str).str.upper() == "E") &
-        (df["SEM_INSTRUMENT_NAME"].astype(str).str.upper() == "EQUITY")
+        (df["SEM_EXM_EXCH_ID"] == "NSE") &
+        (df["SEM_SEGMENT"] == "E") &
+        (df["SEM_INSTRUMENT_NAME"] == "EQUITY")
     )
     if "SEM_SERIES" in df.columns:
-        mask &= (df["SEM_SERIES"].astype(str).str.upper() == "EQ")
+        mask &= df["SEM_SERIES"].isin(EQUITY_SERIES)
+    else:
+        print("[UNIVERSE][WARN] SEM_SERIES column missing — series filter not applied!", flush=True)
 
     eq = df.loc[mask].copy()
     result = pd.DataFrame({
